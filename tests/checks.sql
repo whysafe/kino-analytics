@@ -96,3 +96,7 @@ begin
 end $$;
 select pg_temp.check(exists (select 1 from plan_text where line like '%views_user_time_idx%'),
                      'поиск просмотров пользователя идёт по индексу views_user_time_idx');
+
+-- BRIN по started_at имеет смысл, только если физический порядок строк близок к порядку по времени
+select pg_temp.check((select correlation from pg_stats where schemaname = 'kino' and tablename = 'views' and attname = 'started_at') > 0.9,
+                     'строки views лежат почти по порядку времени (корреляция > 0.9), BRIN работает');

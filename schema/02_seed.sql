@@ -107,7 +107,8 @@ from (
     cross join lateral generate_series(1, greatest(1, ((a.last_day - a.first_day + 1) * a.sessions_per_day)::int)) k
 ) x
 join movies m on m.id = x.movie_id
-order by x.user_id;
+-- Вставка по времени, как в живой системе: на этом держится BRIN-индекс по started_at.
+order by 3;
 
 -- Запойный просмотр сериалов: после части серий человек смотрит ещё 2–5 серий подряд.
 insert into views (user_id, movie_id, started_at, watched_min)
