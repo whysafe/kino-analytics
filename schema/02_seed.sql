@@ -93,7 +93,10 @@ group by u.id, u.signed_up;
 
 -- Просмотры: популярные тайтлы смотрят чаще (random()^2 сдвигает выбор к малым id).
 -- Досматриваемость зависит от «качества» тайтла, которое модель не видит напрямую.
-insert into views (user_id, movie_id, started_at, watched_min)
+-- Сначала все сеансы во временную таблицу, а в views они попадут одним insert по порядку времени.
+create temporary table raw_views (user_id bigint, movie_id int, started_at timestamptz, watched_min smallint);
+
+insert into raw_views (user_id, movie_id, started_at, watched_min)
 select x.user_id, m.id,
        (x.first_day + floor(x.r_day * (x.last_day - x.first_day + 1))::int)::timestamp
            + make_interval(hours => 17 + floor(x.r_hour * 7)::int, mins => floor(x.r_min * 60)::int),
@@ -107,19 +110,24 @@ from (
     cross join lateral generate_series(1, greatest(1, ((a.last_day - a.first_day + 1) * a.sessions_per_day)::int)) k
 ) x
 join movies m on m.id = x.movie_id
--- Вставка по времени, как в живой системе: на этом держится BRIN-индекс по started_at.
-order by 3;
+order by x.user_id, 3;
 
 -- Запойный просмотр сериалов: после части серий человек смотрит ещё 2–5 серий подряд.
-insert into views (user_id, movie_id, started_at, watched_min)
+insert into raw_views (user_id, movie_id, started_at, watched_min)
 select p.user_id, p.movie_id, p.started_at + make_interval(mins => (p.duration_min + 3) * k), p.duration_min
 from (
     select v.user_id, v.movie_id, v.started_at, m.duration_min, 2 + floor(random() * 4)::int as extra, random() as r
-    from views v
+    from raw_views v
     join movies m on m.id = v.movie_id and m.is_series
 ) p
 cross join lateral generate_series(1, p.extra) k
 where p.r < 0.3;
+
+-- Вставка по времени, как в живой системе: на этом держится BRIN-индекс по started_at.
+insert into views (user_id, movie_id, started_at, watched_min)
+select user_id, movie_id, started_at, watched_min
+from raw_views
+order by started_at, user_id, movie_id;
 
 -- Оценки ставят примерно четверть досмотревших; оценка связана с тем же «качеством» тайтла.
 insert into ratings (user_id, movie_id, score, rated_on)
