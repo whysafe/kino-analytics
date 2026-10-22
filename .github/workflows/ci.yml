@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kino
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kino
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -q && sudo apt-get install -y -q postgresql-client
+      - name: Schema
+        run: psql -X -q -v ON_ERROR_STOP=1 -f schema/01_schema.sql
+      - name: Seed data
+        run: time psql -X -q -v ON_ERROR_STOP=1 -f schema/02_seed.sql
+      - name: Row counts
+        run: |
+          psql -X -c "select 'users' t, count(*) from kino.users union all select 'subscriptions', count(*) from kino.subscriptions
+                     union all select 'payments', count(*) from kino.payments union all select 'views', count(*) from kino.views
+                     union all select 'ratings', count(*) from kino.ratings"
+      - name: Checks
+        run: psql -X -q -v ON_ERROR_STOP=1 -f tests/checks.sql
+      - name: Run every query and build the report
+        run: |
+          bash scripts/report.sh > REPORT.md
+          cat REPORT.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: REPORT.md
